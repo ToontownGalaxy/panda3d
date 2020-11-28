@@ -134,6 +134,8 @@ def usage(problem):
     print("  --threads N       (use the multithreaded build system. see manual)")
     print("  --osxtarget N     (the OS X version number to build for (OS X only))")
     print("  --override \"O=V\"  (override dtool_config/prc option value)")
+    print("  --universal       (build universal binaries (OS X only))")
+
     print("  --static          (builds libraries for static linking)")
     print("  --target X        (experimental cross-compilation (android only))")
     print("  --arch X          (target architecture for cross-compilation)")
@@ -186,6 +188,7 @@ def parseopts(args):
     optimize = ""
     target = None
     target_arch = None
+    universal = False
     clean_build = False
     for pkg in PkgListGet():
         longopts.append("use-" + pkg.lower())
@@ -209,6 +212,8 @@ def parseopts(args):
             elif (option=="--threads"): THREADCOUNT=int(value)
             elif (option=="--outputdir"): SetOutputDir(value.strip())
             elif (option=="--osxtarget"): OSXTARGET=value.strip()
+            elif (option=="--universal"): universal = True
+
             elif (option=="--target"): target = value.strip()
             elif (option=="--arch"): target_arch = value.strip()
             elif (option=="--nocolor"): DisableColors()
