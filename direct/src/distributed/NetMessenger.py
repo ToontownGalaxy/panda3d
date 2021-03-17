@@ -91,23 +91,3 @@ class NetMessenger(Messenger):
         datagram = self.prepare(message, sentArgs)
         self.air.send(datagram)
         Messenger.send(self, message, sentArgs=sentArgs)
-
-    def handle(self, msgType, di):
-        """
-        Send data from the net on the local netMessenger.
-        """
-        assert self.notify.debugCall()
-
-        if msgType not in self.__type2message:
-            self.notify.warning('Received unknown message: %d' % msgType)
-            return
-
-        message = self.__type2message[msgType]
-        sentArgs=loads(di.getString())
-
-        if type(sentArgs) != list:
-            self.notify.warning('Received non-list item in %s message: %r' %
-                                (message, sentArgs))
-            return
-
-        Messenger.send(self, message, sentArgs=sentArgs)
