@@ -177,7 +177,9 @@ class ClientRepositoryBase(ConnectionRepository):
         "generate" messages when they are replayed().
         """
 
-        if msgType == CLIENT_ENTER_OBJECT_REQUIRED_OTHER:
+        astronSupport = ConfigVariableBool('astron-support', True)
+        generateMsg = CLIENT_ENTER_OBJECT_REQUIRED_OTHER if astronSupport else CLIENT_CREATE_OBJECT_REQUIRED_OTHER
+        if msgType == generateMsg:
             # It's a generate message.
             doId = extra
             if doId in self.deferredDoIds:
@@ -186,7 +188,7 @@ class ClientRepositoryBase(ConnectionRepository):
                 self.doGenerate(*args)
 
                 if deferrable:
-                    self.lastGenerate = globalClock.getFrameTime()
+                    self.lastGenerate = ClockObject.getGlobalClock().getFrameTime()
 
                 for dg, di in updates:
                     # non-DC updates that need to be played back in-order are
@@ -207,7 +209,7 @@ class ClientRepositoryBase(ConnectionRepository):
         """ This is the task that generates an object on the deferred
         queue. """
 
-        now = globalClock.getFrameTime()
+        now = ClockObject.getGlobalClock().getFrameTime()
         while self.deferredGenerates:
             if now - self.lastGenerate < self.deferInterval:
                 # Come back later.
@@ -383,7 +385,9 @@ class ClientRepositoryBase(ConnectionRepository):
             # The object had been deferred.  Great; we don't even have
             # to generate it now.
             del self.deferredDoIds[doId]
-            i = self.deferredGenerates.index((CLIENT_ENTER_OBJECT_REQUIRED_OTHER, doId))
+            astronSupport = ConfigVariableBool('astron-support', True)
+            generateMsg = CLIENT_ENTER_OBJECT_REQUIRED_OTHER if astronSupport else CLIENT_CREATE_OBJECT_REQUIRED_OTHER
+            i = self.deferredGenerates.index((generateMsg, doId))
             del self.deferredGenerates[i]
             if len(self.deferredGenerates) == 0:
                 taskMgr.remove('deferredGenerate')
@@ -539,7 +543,7 @@ class ClientRepositoryBase(ConnectionRepository):
             self.notify.debug("Heartbeats not started; not sending.")
             return
 
-        elapsed = globalClock.getRealTime() - self.lastHeartbeat
+        elapsed = ClockObject.getGlobalClock().getRealTime() - self.lastHeartbeat
         if elapsed < 0 or elapsed > self.heartbeatInterval:
             # It's time to send the heartbeat again (or maybe someone
             # reset the clock back).

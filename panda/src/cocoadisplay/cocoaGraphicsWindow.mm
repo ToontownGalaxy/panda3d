@@ -693,7 +693,7 @@ open_window() {
   // Enable relative mouse mode, if this was requested.
   if (_properties.has_mouse_mode() &&
       _properties.get_mouse_mode() == WindowProperties::M_relative) {
-    mouse_mode_relative();
+    CGAssociateMouseAndMouseCursorPosition(NO);
   }
 
   _vsync_enabled = sync_video && cocoagsg->setup_vsync();
@@ -745,22 +745,6 @@ close_window() {
   _vsync_enabled = false;
 
   GraphicsWindow::close_window();
-}
-
-/**
- * Overridden from GraphicsWindow.
- */
-void CocoaGraphicsWindow::
-mouse_mode_absolute() {
-  CGAssociateMouseAndMouseCursorPosition(YES);
-}
-
-/**
- * Overridden from GraphicsWindow.
- */
-void CocoaGraphicsWindow::
-mouse_mode_relative() {
-  CGAssociateMouseAndMouseCursorPosition(NO);
 }
 
 /**
@@ -1170,7 +1154,7 @@ find_display_modes(int width, int height) {
 
   // Get the current refresh rate and pixel encoding.
   CFStringRef current_pixel_encoding;
-  int refresh_rate;
+  double refresh_rate;
   mode = CGDisplayCopyDisplayMode(_display);
 
   // First check if the current mode is adequate.
@@ -1204,7 +1188,7 @@ find_display_modes(int width, int height) {
     // the mode width and height but also actual pixel widh and height.
     if (CGDisplayModeGetWidth(mode) == width &&
         CGDisplayModeGetHeight(mode) == height &&
-        CGDisplayModeGetRefreshRate(mode) == refresh_rate &&
+        (int)(CGDisplayModeGetRefreshRate(mode) + 0.5) == (int)(refresh_rate + 0.5) &&
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
         (floor(NSAppKitVersionNumber) <= NSAppKitVersionNumber10_14 ||
         (CGDisplayModeGetPixelWidth(mode) == expected_pixel_width &&
@@ -1212,7 +1196,12 @@ find_display_modes(int width, int height) {
 #endif
         CFStringCompare(pixel_encoding, current_pixel_encoding, 0) == kCFCompareEqualTo) {
 
-      CFArrayAppendValue(valid_modes, mode);
+      if (CGDisplayModeGetRefreshRate(mode) == refresh_rate) {
+        // Exact match for refresh rate, prioritize this.
+        CFArrayInsertValueAtIndex(valid_modes, 0, mode);
+      } else {
+        CFArrayAppendValue(valid_modes, mode);
+      }
     }
     CFRelease(pixel_encoding);
   }
@@ -2169,6 +2158,7 @@ map_raw_key(unsigned short keycode) const {
   case 0x07: return KeyboardButton::ascii_key('x');
   case 0x08: return KeyboardButton::ascii_key('c');
   case 0x09: return KeyboardButton::ascii_key('v');
+  case 0x0A: return KeyboardButton::ascii_key('<');
   case 0x0B: return KeyboardButton::ascii_key('b');
   case 0x0C: return KeyboardButton::ascii_key('q');
   case 0x0D: return KeyboardButton::ascii_key('w');
