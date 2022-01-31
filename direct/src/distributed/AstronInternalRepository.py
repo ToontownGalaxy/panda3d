@@ -743,7 +743,7 @@ class AstronInternalRepository(ConnectionRepository):
         dg.add_uint32(zoneId)
         self.send(dg)
 
-    def setOwner(self, doId, newOwner):
+    def setOwner(self, doId, newOwner, sendEntry):
         """
         Sets the owner of a DistributedObject. This will enable the new owner to send "ownsend" fields,
         and will generate an OwnerView.
@@ -752,4 +752,5 @@ class AstronInternalRepository(ConnectionRepository):
         dg = PyDatagram()
         dg.addServerHeader(doId, self.ourChannel, STATESERVER_OBJECT_SET_OWNER)
         dg.add_uint64(newOwner)
+        dg.add_bool(sendEntry)
         self.send(dg)
