@@ -433,7 +433,7 @@ def SetTarget(target, arch=None):
             ANDROID_ABI = 'x86_64'
             ANDROID_TRIPLE = 'x86_64-linux-android'
         else:
-            exit('Android architecture must be arm, armv7a, arm64, mips, mips64, x86 or x86_64')
+            exit('Android architecture must be arm, armv7a, arm64, mips, mips64, x86 or x86_64, use --arch to specify')
 
         ANDROID_TRIPLE += str(ANDROID_API)
         TOOLCHAIN_PREFIX = ANDROID_TRIPLE + '-'
@@ -572,6 +572,26 @@ def GetFlexVersion():
         Warn("Unable to detect flex version")
         return (0, 0, 0)
 
+SEVENZIP = None
+def GetSevenZip():
+    global SEVENZIP
+    if SEVENZIP is not None:
+        return SEVENZIP
+
+    win_util = os.path.join(GetThirdpartyBase(), 'win-util')
+    if GetHost() == 'windows' and os.path.isdir(win_util):
+        SEVENZIP = GetThirdpartyBase() + "/win-util/7za.exe"
+    elif LocateBinary('7z'):
+        SEVENZIP = '7z'
+    else:
+        # We don't strictly need it, so don't give an error
+        return None
+
+    return SEVENZIP
+
+def HasSevenZip():
+    return GetSevenZip() is not None
+
 ########################################################################
 ##
 ## LocateBinary
@@ -634,6 +654,9 @@ def oscmd(cmd, ignoreError = False, cwd=None):
             os.chdir(cwd)
 
         res = os.spawnl(os.P_WAIT, exe_path, cmd)
+
+        if res == -1073741510: # 0xc000013a
+            exit("keyboard interrupt")
 
         if cwd is not None:
             os.chdir(pwd)
@@ -717,7 +740,7 @@ def GetTimestamp(path):
     if path in TIMESTAMPCACHE:
         return TIMESTAMPCACHE[path]
     try:
-        date = os.path.getmtime(path)
+        date = int(os.path.getmtime(path))
     except:
         date = 0
     TIMESTAMPCACHE[path] = date
@@ -854,8 +877,11 @@ def JavaGetImports(path):
     imports = []
     try:
         for match in JavaImportRegex.finditer(source, 0):
-            impname = match.group(1)
-            imports.append(impname.strip())
+            impname = match.group(1).strip()
+            if not impname.startswith('java.') and \
+               not impname.startswith('dalvik.') and \
+               not impname.startswith('android.'):
+                imports.append(impname.strip())
     except:
         print("Failed to determine dependencies of \"" + path  +"\".")
         raise
@@ -871,7 +897,7 @@ def JavaGetImports(path):
 ##
 ########################################################################
 
-DCACHE_VERSION = 2
+DCACHE_VERSION = 3
 DCACHE_BACKED_UP = False
 
 def SaveDependencyCache():
@@ -2179,7 +2205,14 @@ def SdkLocatePython(prefer_thirdparty_python=False):
 
         if not os.path.exists(py_fwx):
             # Use Brew Python.
-            py_fwx = "/usr/local/opt/python@%s/Frameworks/Python.framework/Versions/%s" % (version, version)
+            if platform.machine() == 'arm64':
+                py_fwx = "/opt/homebrew/opt/python@%s/Frameworks/Python.framework/Versions/%s" % (version, version)
+            else:
+                py_fwx = "/usr/local/opt/python@%s/Frameworks/Python.framework/Versions/%s" % (version, version)
+
+        if not os.path.exists(py_fwx):
+            # Newer macOS versions use this scheme.
+            py_fwx = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/" + version
 
         if not os.path.exists(py_fwx):
             exit("Could not locate Python installation at %s" % (py_fwx))
@@ -2417,7 +2450,7 @@ def SdkLocateMacOSX(archs = []):
         # Prefer pre-10.14 for now so that we can keep building FMOD.
         sdk_versions += ["10.13", "10.12", "10.11", "10.10", "10.9"]
 
-    sdk_versions += ["11.3", "11.1", "11.0"]
+    sdk_versions += ["13.0", "12.3", "11.3", "11.1", "11.0"]
 
     if 'arm64' not in archs:
         sdk_versions += ["10.15", "10.14"]
@@ -3347,7 +3380,12 @@ def SetOrigExt(x, v):
     ORIG_EXT[x] = v
 
 def GetExtensionSuffix():
-    if CrossCompiling():
+    if GetTarget() == 'windows':
+        if GetTargetArch() == 'x64':
+            return '.cp%d%d-win_amd64.pyd' % (sys.version_info[:2])
+        else:
+            return '.cp%d%d-win32.pyd' % (sys.version_info[:2])
+    elif CrossCompiling():
         return '.{0}.so'.format(GetPythonABI())
     else:
         import _imp

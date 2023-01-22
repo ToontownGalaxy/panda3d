@@ -1393,8 +1393,8 @@ framebuffer_copy_to_texture(Texture *tex, int view, int z,
  */
 bool TinyGraphicsStateGuardian::
 framebuffer_copy_to_ram(Texture *tex, int view, int z,
-                        const DisplayRegion *dr,
-                        const RenderBuffer &rb) {
+                        const DisplayRegion *dr, const RenderBuffer &rb,
+                        ScreenshotRequest *request) {
   nassertr(tex != nullptr && dr != nullptr, false);
 
   int xo, yo, w, h;
@@ -1465,6 +1465,9 @@ framebuffer_copy_to_ram(Texture *tex, int view, int z,
     fo += _c->zb->linesize / PSZB;
   }
 
+  if (request != nullptr) {
+    request->finish();
+  }
   return true;
 }
 
@@ -3039,6 +3042,15 @@ get_color_blend_op(ColorBlendAttrib::Operand operand) {
 
   case ColorBlendAttrib::O_incoming_color_saturate:
     return 1;
+
+  case ColorBlendAttrib::O_incoming1_color:
+    return 1;
+  case ColorBlendAttrib::O_one_minus_incoming1_color:
+    return 0;
+  case ColorBlendAttrib::O_incoming1_alpha:
+    return 1;
+  case ColorBlendAttrib::O_one_minus_incoming1_alpha:
+    return 0;
 
   case ColorBlendAttrib::O_color_scale:
     return 10;

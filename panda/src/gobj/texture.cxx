@@ -70,6 +70,7 @@ ConfigVariableEnum<Texture::QualityLevel> texture_quality_level
           "renderers.  See Texture::set_quality_level()."));
 
 PStatCollector Texture::_texture_read_pcollector("*:Texture:Read");
+PStatCollector Texture::_texture_write_pcollector("*:Texture:Write");
 TypeHandle Texture::_type_handle;
 TypeHandle Texture::CData::_type_handle;
 AutoTextureScale Texture::_textures_power_2 = ATS_unspecified;
@@ -381,8 +382,7 @@ Texture(const string &name) :
   _reloading = false;
 
   CDWriter cdata(_cycler, true);
-  do_set_format(cdata, F_rgb);
-  do_set_component_type(cdata, T_unsigned_byte);
+  cdata->inc_properties_modified();
 }
 
 /**
@@ -1065,20 +1065,24 @@ async_ensure_ram_image(bool allow_compression, int priority) {
   double delay = async_load_delay;
 
   // This texture has not yet been queued to be reloaded.  Queue it up now.
-  task = new FunctionAsyncTask(task_name, [=](AsyncTask *task) {
+  task = chain->add([=](AsyncTask *task) {
     if (delay != 0.0) {
       Thread::sleep(delay);
     }
+
     if (allow_compression) {
-      get_ram_image();
-    } else {
-      get_uncompressed_ram_image();
+      CDWriter cdata(_cycler, unlocked_ensure_ram_image(true));
+      cdata->_reload_task = nullptr;
+      do_get_ram_image(cdata);
+    }
+    else {
+      CDWriter cdata(_cycler, false);
+      cdata->_reload_task = nullptr;
+      do_get_uncompressed_ram_image(cdata);
     }
     return AsyncTask::DS_done;
-  });
-  task->set_task_chain("texture_reload");
-  task->set_priority(priority);
-  task_mgr->add(task);
+  }, task_name, 0, priority);
+
   cdataw->_reload_task = task;
   return (AsyncFuture *)task;
 }
@@ -1117,7 +1121,7 @@ set_ram_image_as(CPTA_uchar image, const string &supplied_format) {
   if (cdata->_component_width == 1) {
     if (format == "RGBA" && cdata->_num_components == 4) {
       imgsize *= 4;
-      for (int p = 0; p < imgsize; p += 4) {
+      for (size_t p = 0; p < imgsize; p += 4) {
         newdata[p + 2] = image[p    ];
         newdata[p + 1] = image[p + 1];
         newdata[p    ] = image[p + 2];
@@ -1128,7 +1132,7 @@ set_ram_image_as(CPTA_uchar image, const string &supplied_format) {
     }
     if (format == "RGB" && cdata->_num_components == 3) {
       imgsize *= 3;
-      for (int p = 0; p < imgsize; p += 3) {
+      for (size_t p = 0; p < imgsize; p += 3) {
         newdata[p + 2] = image[p    ];
         newdata[p + 1] = image[p + 1];
         newdata[p    ] = image[p + 2];
@@ -1139,13 +1143,13 @@ set_ram_image_as(CPTA_uchar image, const string &supplied_format) {
     if (format == "A" && cdata->_num_components != 3) {
       // We can generally rely on alpha to be the last component.
       int component = cdata->_num_components - 1;
-      for (int p = 0; p < imgsize; ++p) {
+      for (size_t p = 0; p < imgsize; ++p) {
         newdata[component] = image[p];
       }
       do_set_ram_image(cdata, newdata);
       return;
     }
-    for (int p = 0; p < imgsize; ++p) {
+    for (size_t p = 0; p < imgsize; ++p) {
       for (unsigned char s = 0; s < format.size(); ++s) {
         signed char component = -1;
         if (format.at(s) == 'B' || (cdata->_num_components <= 2 && format.at(s) != 'A')) {
@@ -1177,7 +1181,7 @@ set_ram_image_as(CPTA_uchar image, const string &supplied_format) {
     do_set_ram_image(cdata, newdata);
     return;
   }
-  for (int p = 0; p < imgsize; ++p) {
+  for (size_t p = 0; p < imgsize; ++p) {
     for (unsigned char s = 0; s < format.size(); ++s) {
       signed char component = -1;
       if (format.at(s) == 'B' || (cdata->_num_components <= 2 && format.at(s) != 'A')) {
@@ -5195,6 +5199,8 @@ do_read_ktx(CData *cdata, istream &in, const string &filename, bool header_only)
 bool Texture::
 do_write(CData *cdata,
          const Filename &fullpath, int z, int n, bool write_pages, bool write_mipmaps) {
+  PStatTimer timer(_texture_write_pcollector);
+
   if (is_txo_filename(fullpath)) {
     if (!do_has_bam_rawdata(cdata)) {
       do_get_bam_rawdata(cdata);
@@ -7512,7 +7518,8 @@ get_ram_image_as(const string &requested_format) {
     gobj_cat.error() << "Couldn't find an uncompressed RAM image!\n";
     return CPTA_uchar(get_class_type());
   }
-  int imgsize = cdata->_x_size * cdata->_y_size;
+  size_t imgsize = (size_t)cdata->_x_size * (size_t)cdata->_y_size *
+                   (size_t)cdata->_z_size * (size_t)cdata->_num_views;
   nassertr(cdata->_num_components > 0 && cdata->_num_components <= 4, CPTA_uchar(get_class_type()));
   nassertr(data.size() == (size_t)(cdata->_component_width * cdata->_num_components * imgsize), CPTA_uchar(get_class_type()));
 
@@ -7550,7 +7557,7 @@ get_ram_image_as(const string &requested_format) {
       const uint32_t *src = (const uint32_t *)data.p();
       uint32_t *dst = (uint32_t *)newdata.p();
 
-      for (int p = 0; p < imgsize; ++p) {
+      for (size_t p = 0; p < imgsize; ++p) {
         uint32_t v = *src++;
         *dst++ = ((v & 0xff00ff00u)) |
                  ((v & 0x00ff0000u) >> 16) |
@@ -7637,14 +7644,14 @@ get_ram_image_as(const string &requested_format) {
     }
     if (format == "A" && cdata->_num_components != 3) {
       // We can generally rely on alpha to be the last component.
-      for (int p = 0; p < imgsize; ++p) {
+      for (size_t p = 0; p < imgsize; ++p) {
         dst[p] = src[alpha];
         src += cdata->_num_components;
       }
       return newdata;
     }
     // Fallback case for other 8-bit-per-channel formats.
-    for (int p = 0; p < imgsize; ++p) {
+    for (size_t p = 0; p < imgsize; ++p) {
       for (size_t i = 0; i < format.size(); ++i) {
         if (format[i] == 'B' || (cdata->_num_components <= 2 && format[i] != 'A')) {
           *dst++ = src[0];
@@ -7670,7 +7677,7 @@ get_ram_image_as(const string &requested_format) {
   }
 
   // The slow and general case.
-  for (int p = 0; p < imgsize; ++p) {
+  for (size_t p = 0; p < imgsize; ++p) {
     for (size_t i = 0; i < format.size(); ++i) {
       int component = 0;
       if (format[i] == 'B' || (cdata->_num_components <= 2 && format[i] != 'A')) {
@@ -10455,9 +10462,9 @@ make_this_from_bam(const FactoryParams &params) {
         // If texture filename was given relative to the bam filename, expand
         // it now.
         Filename bam_dir = manager->get_filename().get_dirname();
-        vfs->resolve_filename(filename, bam_dir);
+        vfs->resolve_filename(filename, DSearchPath(bam_dir));
         if (!alpha_filename.empty()) {
-          vfs->resolve_filename(alpha_filename, bam_dir);
+          vfs->resolve_filename(alpha_filename, DSearchPath(bam_dir));
         }
       }
 
@@ -10776,11 +10783,10 @@ CData() {
   _y_size = 1;
   _z_size = 1;
   _num_views = 1;
-
-  // We will override the format in a moment (in the Texture constructor), but
-  // set it to something else first to avoid the check in do_set_format
-  // depending on an uninitialized value.
-  _format = F_rgba;
+  _num_components = 3;
+  _component_width = 1;
+  _format = F_rgb;
+  _component_type = T_unsigned_byte;
 
   // Only used for buffer textures.
   _usage_hint = GeomEnums::UH_unspecified;
@@ -10815,6 +10821,7 @@ CData() {
 Texture::CData::
 CData(const Texture::CData &copy) {
   _num_mipmap_levels_read = 0;
+  _render_to_texture = copy._render_to_texture;
 
   do_assign(&copy);
 
