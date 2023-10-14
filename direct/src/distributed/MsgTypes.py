@@ -45,6 +45,9 @@ if ConfigVariableBool('astron-support', True):
     CONTROL_REMOVE_RANGE =                            9003
     CONTROL_ADD_POST_REMOVE =                         9010
     CONTROL_CLEAR_POST_REMOVES =                      9011
+    CONTROL_SET_CON_NAME =                            9012
+    CONTROL_SET_CON_URL =                             9013
+    CONTROL_LOG_MESSAGE =                             9014
 
     # State Server control messages:
     STATESERVER_CREATE_OBJECT_WITH_REQUIRED =         2000

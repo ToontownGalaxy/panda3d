@@ -13,7 +13,6 @@ import re
 import shutil
 import stat
 import struct
-import imp
 import string
 import tempfile
 
@@ -717,6 +716,7 @@ class build_apps(setuptools.Command):
             'CFBundlePackageType': 'APPL',
             'CFBundleSignature': '', #TODO
             'CFBundleExecutable': self.macos_main_app,
+            'NSHighResolutionCapable': 'True',
         }
 
         icon = self.icon_objects.get(
@@ -1067,7 +1067,7 @@ class build_apps(setuptools.Command):
             freezer_extras.update(freezer.extras)
             freezer_modules.update(freezer.getAllModuleNames())
             for suffix in freezer.mf.suffixes:
-                if suffix[2] == imp.C_EXTENSION:
+                if suffix[2] == 3: # imp.C_EXTENSION:
                     ext_suffixes.add(suffix[0])
 
         for appname, scriptname in self.gui_apps.items():
