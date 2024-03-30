@@ -1334,7 +1334,7 @@ class Freezer:
                 self.mf.load_module(mdef.moduleName, fp, pathname, stuff)
             else:
                 stuff = ("", "rb", _PY_SOURCE)
-                if mdef.text:
+                if mdef.text is not None:
                     fp = io.StringIO(mdef.text)
                 else:
                     fp = open(pathname, 'rb')
@@ -1948,6 +1948,9 @@ class Freezer:
         if self.platform.startswith('win'):
             # We don't use mmap on Windows.  Align just for good measure.
             blob_align = 32
+        elif self.platform.endswith('_aarch64') or self.platform.endswith('_arm64'):
+            # Most arm64 operating systems are configured with 16 KiB pages.
+            blob_align = 16384
         else:
             # Align to page size, so that it can be mmapped.
             blob_align = 4096

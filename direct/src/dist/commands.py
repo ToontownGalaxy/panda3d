@@ -23,6 +23,7 @@ from . import FreezeTool
 from . import pefile
 from . import installers
 from .icon import Icon
+from ._dist_hooks import finalize_distribution_options
 import panda3d.core as p3d
 
 
@@ -54,10 +55,16 @@ def _register_python_loaders():
 
     _register_python_loaders.done = True
 
-    registry = p3d.LoaderFileTypeRegistry.getGlobalPtr()
+    from importlib.metadata import entry_points
 
-    import pkg_resources
-    for entry_point in pkg_resources.iter_entry_points('panda3d.loaders'):
+    eps = entry_points()
+    if isinstance(eps, dict): # Python 3.8 and 3.9
+        loaders = eps.get('panda3d.loaders', ())
+    else:
+        loaders = eps.select(group='panda3d.loaders')
+
+    registry = p3d.LoaderFileTypeRegistry.get_global_ptr()
+    for entry_point in loaders:
         registry.register_deferred_type(entry_point)
 
 
@@ -465,8 +472,10 @@ class build_apps(setuptools.Command):
         if self.bam_model_extensions:
             for ext in self.bam_model_extensions:
                 ext = '.' + ext.lstrip('.')
-                assert ext not in self.file_handlers, \
-                    'Extension {} occurs in both file_handlers and bam_model_extensions!'.format(ext)
+                handler = self.file_handlers.get(ext)
+                if handler != _model_to_bam:
+                    assert handler is None, \
+                        'Extension {} occurs in both file_handlers and bam_model_extensions!'.format(ext)
                 self.file_handlers[ext] = _model_to_bam
 
         tmp = self.default_file_handlers.copy()
@@ -1698,7 +1707,7 @@ class bdist_apps(setuptools.Command):
             setattr(self, opt, None)
 
     def finalize_options(self):
-        import pkg_resources
+        from importlib.metadata import entry_points
 
         # We need to massage the inputs a bit in case they came from a
         # setup.cfg file.
@@ -1712,11 +1721,17 @@ class bdist_apps(setuptools.Command):
             self.signing_certificate = os.path.abspath(self.signing_certificate)
             self.signing_private_key = os.path.abspath(self.signing_private_key)
 
+        eps = entry_points()
+        if isinstance(eps, dict): # Python 3.8 and 3.9
+            installer_eps = eps.get('panda3d.bdist_apps.installers', ())
+        else:
+            installer_eps = eps.select(group='panda3d.bdist_apps.installers')
+
         tmp = self.DEFAULT_INSTALLER_FUNCS.copy()
         tmp.update(self.installer_functions)
         tmp.update({
             entrypoint.name: entrypoint.load()
-            for entrypoint in pkg_resources.iter_entry_points('panda3d.bdist_apps.installers')
+            for entrypoint in installer_eps
         })
         self.installer_functions = tmp
 
@@ -1759,14 +1774,3 @@ class bdist_apps(setuptools.Command):
                     continue
 
                 self.installer_functions[installer](self, basename, build_dir)
-
-
-def finalize_distribution_options(dist):
-    """Entry point for compatibility with setuptools>=61, see #1394."""
-
-    options = dist.get_option_dict('build_apps')
-    if options.get('gui_apps') or options.get('console_apps'):
-        # Make sure this is set to avoid auto-discovery taking place.
-        if getattr(dist.metadata, 'py_modules', None) is None and \
-           getattr(dist.metadata, 'packages', None) is None:
-            dist.py_modules = []
