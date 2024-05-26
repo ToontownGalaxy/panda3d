@@ -39,7 +39,77 @@ __all__ = ['ShowBase', 'WindowControls']
 # Annoying and very noisy, but sometimes useful
 #import VerboseImport
 
-from panda3d.core import *
+from panda3d.core import (
+    AntialiasAttrib,
+    AudioManager,
+    AudioSound,
+    BitMask32,
+    ButtonThrower,
+    Camera,
+    ClockObject,
+    CollisionTraverser,
+    ColorBlendAttrib,
+    ConfigPageManager,
+    ConfigVariableBool,
+    ConfigVariableDouble,
+    ConfigVariableFilename,
+    ConfigVariableInt,
+    ConfigVariableManager,
+    ConfigVariableString,
+    DataGraphTraverser,
+    DepthTestAttrib,
+    DepthWriteAttrib,
+    DriveInterface,
+    ExecutionEnvironment,
+    Filename,
+    FisheyeMaker,
+    FrameBufferProperties,
+    FrameRateMeter,
+    GeomNode,
+    GraphicsEngine,
+    GraphicsOutput,
+    GraphicsPipe,
+    GraphicsPipeSelection,
+    GraphicsWindow,
+    InputDeviceManager,
+    InputDeviceNode,
+    KeyboardButton,
+    LensNode,
+    Mat4,
+    ModelNode,
+    ModifierButtons,
+    MouseAndKeyboard,
+    MouseRecorder,
+    MouseWatcher,
+    NodePath,
+    Notify,
+    OrthographicLens,
+    PandaNode,
+    PandaSystem,
+    PerspectiveLens,
+    PGMouseWatcherBackground,
+    PGTop,
+    PNMImage,
+    PStatClient,
+    PythonCallbackObject,
+    RecorderController,
+    RenderModeAttrib,
+    RenderState,
+    RescaleNormalAttrib,
+    SceneGraphAnalyzerMeter,
+    TexGenAttrib,
+    Texture,
+    TextureStage,
+    Thread,
+    Trackball,
+    Transform2SG,
+    TransformState,
+    TrueClock,
+    VBase4,
+    VirtualFileSystem,
+    WindowProperties,
+    getModelPath,
+)
 from panda3d.direct import throw_new_frame, init_app_for_gui
 from panda3d.direct import storeAccessibilityShortcutKeys, allowAccessibilityShortcutKeys
 from . import DConfig
@@ -50,9 +120,10 @@ from direct.extensions_native import NodePath_extensions # pylint: disable=unuse
 # This needs to be available early for DirectGUI imports
 import sys
 import builtins
-builtins.config = DConfig
+builtins.config = DConfig  # type: ignore[attr-defined]
 
 from direct.directnotify.DirectNotifyGlobal import directNotify, giveNotify
+from direct.directnotify.Notifier import Notifier
 from .MessengerGlobal import messenger
 from .BulletinBoardGlobal import bulletinBoard
 from direct.task.TaskManagerGlobal import taskMgr
@@ -70,11 +141,13 @@ import importlib
 from direct.showbase import ExceptionVarDump
 from . import DirectObject
 from . import SfxPlayer
+from typing import ClassVar, Optional
 if __debug__:
     from direct.showbase import GarbageReport
     from direct.directutil import DeltaProfiler
     from . import OnScreenDebug
     import warnings
+
 
 @atexit.register
 def exitfunc():
@@ -84,11 +157,18 @@ def exitfunc():
 # Now ShowBase is a DirectObject.  We need this so ShowBase can hang
 # hooks on messages, particularly on window-event.  This doesn't
 # *seem* to cause anyone any problems.
+
+
 class ShowBase(DirectObject.DirectObject):
 
     #: The deprecated `.DConfig` interface for accessing config variables.
-    config = DConfig
-    notify = directNotify.newCategory("ShowBase")
+    config: ClassVar = DConfig
+    notify: ClassVar[Notifier] = directNotify.newCategory("ShowBase")
+    guiItems: ClassVar[dict]
+
+    render2d: NodePath
+    aspect2d: NodePath
+    pixel2d: NodePath
 
     def __init__(self, fStartDirect=True, windowType=None):
         """Opens a window, sets up a 3-D and several 2-D scene graphs, and
@@ -264,10 +344,10 @@ class ShowBase(DirectObject.DirectObject):
         self.tkRootCreated = False
 
         # This is used for syncing multiple PCs in a distributed cluster
-        try:
+        if hasattr(builtins, 'clusterSyncFlag'):
             # Has the cluster sync variable been set externally?
-            self.clusterSyncFlag = clusterSyncFlag
-        except NameError:
+            self.clusterSyncFlag = builtins.clusterSyncFlag
+        else:
             # Has the clusterSyncFlag been set via a config variable
             self.clusterSyncFlag = ConfigVariableBool('cluster-sync', False)
 
@@ -351,6 +431,7 @@ class ShowBase(DirectObject.DirectObject):
         #: `.Loader.Loader` object.
         self.loader = Loader.Loader(self)
         self.graphicsEngine.setDefaultLoader(self.loader.loader)
+        ShowBaseGlobal.loader = self.loader
 
         #: The global event manager, as imported from `.EventManagerGlobal`.
         self.eventMgr = eventMgr
@@ -540,6 +621,7 @@ class ShowBase(DirectObject.DirectObject):
     def pushCTrav(self, cTrav):
         self.cTravStack.push(self.cTrav)
         self.cTrav = cTrav
+
     def popCTrav(self):
         self.cTrav = self.cTravStack.pop()
 
@@ -617,6 +699,7 @@ class ShowBase(DirectObject.DirectObject):
             allowAccessibilityShortcutKeys(True)
             self.__disabledStickyKeys = False
 
+        self.__directObject.ignoreAll()
         self.ignoreAll()
         self.shutdown()
 
@@ -634,13 +717,12 @@ class ShowBase(DirectObject.DirectObject):
 
         try:
             self.direct.panel.destroy()
-        except:
+        except Exception:
             pass
 
-        if hasattr(self, 'win'):
-            del self.win
-            del self.winList
-            del self.pipe
+        self.win = None
+        self.winList.clear()
+        self.pipe = None
 
     def makeDefaultPipe(self, printPipeTypes = None):
         """
@@ -653,7 +735,7 @@ class ShowBase(DirectObject.DirectObject):
             # When the user didn't specify an explicit setting, take the value
             # from the config variable. We could just omit the parameter, however
             # this way we can keep backward compatibility.
-            printPipeTypes = ConfigVariableBool("print-pipe-types", True)
+            printPipeTypes = ConfigVariableBool("print-pipe-types", True).value
 
         selection = GraphicsPipeSelection.getGlobalPtr()
         if printPipeTypes:
@@ -759,7 +841,7 @@ class ShowBase(DirectObject.DirectObject):
         # Save this lambda here for convenience; we'll use it to call
         # down to the underlying _doOpenWindow() with all of the above
         # parameters.
-        func = lambda : self._doOpenWindow(
+        func = lambda: self._doOpenWindow(
             props = props, fbprops = fbprops, pipe = pipe, gsg = gsg,
             host = host, type = type, name = name, size = size,
             aspectRatio = aspectRatio, makeCamera = makeCamera,
@@ -1657,7 +1739,6 @@ class ShowBase(DirectObject.DirectObject):
             self.recorder.addRecorder('mouse', mouseRecorder)
             np = mw.getParent().attachNewNode(mouseRecorder)
             mw.reparentTo(np)
-
 
         mw = self.buttonThrowers[0].getParent()
 
@@ -2627,7 +2708,7 @@ class ShowBase(DirectObject.DirectObject):
             self.bboard.post('oobeEnabled', True)
             try:
                 cameraParent = localAvatar
-            except:
+            except NameError:
                 # Make oobeCamera be a sibling of wherever camera is now.
                 cameraParent = self.camera.getParent()
             self.oobeCamera.reparentTo(cameraParent)
@@ -2791,7 +2872,6 @@ class ShowBase(DirectObject.DirectObject):
                     camera = None, size = 128,
                     cameraMask = PandaNode.getAllCameraMask(),
                     sourceLens = None):
-
         """
         Similar to :meth:`screenshot()`, this sets up a temporary cube
         map Texture which it uses to take a series of six snapshots of
@@ -3165,7 +3245,7 @@ class ShowBase(DirectObject.DirectObject):
             # Set a timer to run the Panda frame 60 times per second.
             wxFrameRate = ConfigVariableDouble('wx-frame-rate', 60.0)
             self.wxTimer = wx.Timer(self.wxApp)
-            self.wxTimer.Start(1000.0 / wxFrameRate.value)
+            self.wxTimer.Start(int(round(1000.0 / wxFrameRate.value)))
             self.wxApp.Bind(wx.EVT_TIMER, self.__wxTimerCallback)
 
             # wx is now the main loop, not us any more.
@@ -3242,8 +3322,9 @@ class ShowBase(DirectObject.DirectObject):
         init_app_for_gui()
 
         # Disable the Windows message loop, since Tcl wants to handle this all
-        # on its own.
-        ConfigVariableBool('disable-message-loop', False).value = True
+        # on its own, except if the Panda window is on a separate thread.
+        if self.graphicsEngine.getThreadingModel().getDrawStage() == 0:
+            ConfigVariableBool('disable-message-loop', False).value = True
 
         if ConfigVariableBool('tk-main-loop', True):
             # Put Tkinter in charge of the main loop.  It really
@@ -3340,7 +3421,7 @@ class ShowBase(DirectObject.DirectObject):
         # Set fWantTk to 0 to avoid starting Tk with this call
         self.startDirect(fWantDirect = fDirect, fWantTk = fTk, fWantWx = fWx)
 
-    def run(self): # pylint: disable=method-hidden
+    def run(self) -> None: # pylint: disable=method-hidden
         """This method runs the :class:`~direct.task.Task.TaskManager`
         when ``self.appRunner is None``, which is to say, when we are
         not running from within a p3d file.  When we *are* within a p3d
@@ -3357,7 +3438,6 @@ class ShowBase(DirectObject.DirectObject):
         if self.appRunner is None or self.appRunner.dummy or \
            (self.appRunner.interactiveConsole and not self.appRunner.initialAppImport):
             self.taskMgr.run()
-
 
     # Snake-case aliases, for people who prefer these.  We're in the process
     # of migrating everyone to use the snake-case alternatives.

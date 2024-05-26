@@ -105,6 +105,14 @@ is_trivial() const {
 }
 
 /**
+ * Returns true if the type can be safely copied by memcpy or memmove.
+ */
+bool CPPExtensionType::
+is_trivially_copyable() const {
+  return (_type == T_enum || _type == T_enum_class || _type == T_enum_struct);
+}
+
+/**
  * Returns true if the type can be constructed using the given argument.
  */
 bool CPPExtensionType::
@@ -203,7 +211,7 @@ is_equivalent(const CPPType &other) const {
   // We consider two different extension types to be equivalent if they have
   // the same name.
 
-  return *_ident == *ot->_ident;
+  return _ident != nullptr && ot->_ident != nullptr && *_ident == *ot->_ident;
 }
 
 /**

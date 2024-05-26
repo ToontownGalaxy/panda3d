@@ -107,7 +107,7 @@ make_python_frame_collector(PyFrameObject *frame, PyCodeObject *code) {
         }
         meth_name = PyUnicode_FromFormat("_%s%S", cls_name, meth_name);
       } else {
-        Py_INCREF(meth_name);
+        meth_name = Py_NewRef(meth_name);
       }
       if (!find_method(cls, meth_name, code)) {
         // Not a matching method object, it's something else.  Forget it.
@@ -180,10 +180,23 @@ make_c_function_collector(PyCFunctionObject *meth) {
     } else {
       // If there's no module name, we need to get it from __module__.
       PyObject *py_mod_name = cls->tp_dict ? PyDict_GetItemString(cls->tp_dict, "__module__") : nullptr;
-      const char *mod_name;
+      const char *mod_name = nullptr;
       if (py_mod_name != nullptr) {
-        mod_name = PyUnicode_AsUTF8(py_mod_name);
-      } else {
+        if (PyUnicode_Check(py_mod_name)) {
+          mod_name = PyUnicode_AsUTF8(py_mod_name);
+        } else {
+          // Might be a descriptor.
+          py_mod_name = PyObject_GetAttrString(meth->m_self, "__module__");
+          if (py_mod_name != nullptr) {
+            if (PyUnicode_Check(py_mod_name)) {
+              mod_name = PyUnicode_AsUTF8(py_mod_name);
+            }
+            Py_DECREF(py_mod_name);
+          }
+          else PyErr_Clear();
+        }
+      }
+      if (mod_name == nullptr) {
         // Is it a built-in, like int or dict?
         PyObject *builtins = PyEval_GetBuiltins();
         if (PyDict_GetItemString(builtins, cls->tp_name) == (PyObject *)cls) {
